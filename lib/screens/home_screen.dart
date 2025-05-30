@@ -7,10 +7,46 @@ import 'package:quokka_box/widgets/file_card.dart';
 import 'package:quokka_box/services/file_service.dart';
 import 'package:quokka_box/providers/theme_provider.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  Future<void> _pickFile(BuildContext context) async {
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  List<Map<String, dynamic>> _files = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFiles();
+  }
+
+  Future<void> _loadFiles() async {
+    try {
+      setState(() => _isLoading = true);
+      final files = await FileService.listFiles(context);
+      print('Loaded files: $files'); // Debug print
+      setState(() {
+        _files = files;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading files: $e'); // Debug print
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading files: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -19,24 +55,12 @@ class HomeScreen extends StatelessWidget {
       );
 
       if (result != null && result.files.isNotEmpty) {
-        if (!context.mounted) return;
-
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          },
-        );
+        if (!mounted) return;
 
         try {
-          final urls =
-              await FileService.uploadMultipleFilesUniversal(result.files);
-          if (!context.mounted) return;
-
-          Navigator.of(context).pop(); // Close loading dialog
+          final urls = await FileService.uploadMultipleFilesUniversal(
+              result.files, context);
+          if (!mounted) return;
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -44,10 +68,11 @@ class HomeScreen extends StatelessWidget {
               backgroundColor: Colors.green,
             ),
           );
-        } catch (e) {
-          if (!context.mounted) return;
 
-          Navigator.of(context).pop(); // Close loading dialog
+          // Reload files after upload
+          _loadFiles();
+        } catch (e) {
+          if (!mounted) return;
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -58,10 +83,46 @@ class HomeScreen extends StatelessWidget {
         }
       }
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error picking files: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteFile(String publicId) async {
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete File'),
+          content: const Text('Are you sure you want to delete this file?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        await FileService.deleteFile(publicId, context);
+        // Reload files after deletion
+        _loadFiles();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting file: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -77,10 +138,8 @@ class HomeScreen extends StatelessWidget {
             title: const Text('Quokka Box'),
             actions: [
               IconButton(
-                icon: const Icon(Icons.search),
-                onPressed: () {
-                  // TODO: Implement search
-                },
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadFiles,
               ),
               IconButton(
                 icon: Icon(
@@ -112,58 +171,115 @@ class HomeScreen extends StatelessWidget {
                   const SizedBox(height: 24),
                   _buildStorageInfo(context),
                   const SizedBox(height: 24),
-                  Text(
-                    'Recent Files',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Your Files',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      if (_isLoading)
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                 ],
               ),
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 16.0,
-                crossAxisSpacing: 16.0,
-                childAspectRatio: 1.0,
+          if (_isLoading)
+            const SliverFillRemaining(
+              child: Center(
+                child: CircularProgressIndicator(),
               ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final icons = [
-                    Icons.picture_as_pdf,
-                    Icons.description,
-                    Icons.image,
-                    Icons.audio_file,
-                    Icons.video_file,
-                  ];
-
-                  return FileCard(
-                    fileName: 'Sample File ${index + 1}',
-                    fileSize: '${(index + 1) * 100} KB',
-                    icon: icons[index % icons.length],
-                    onTap: () {
-                      // TODO: Implement file preview
-                    },
-                    onDelete: () {
-                      // TODO: Implement file deletion
-                    },
-                  );
-                },
-                childCount: 4,
+            )
+          else if (_files.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.folder_open,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No files yet',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Upload your first file to get started',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 16.0,
+                  crossAxisSpacing: 16.0,
+                  childAspectRatio: 1.0,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final file = _files[index];
+                    return FileCard(
+                      fileName: file['public_id'] ?? 'Unknown',
+                      fileSize: '${(file['bytes'] ?? 0) ~/ 1024} KB',
+                      icon: _getFileIcon(file['format']),
+                      onTap: () {
+                        // TODO: Implement file preview
+                      },
+                      onDelete: () => _deleteFile(file['public_id']),
+                    );
+                  },
+                  childCount: _files.length,
+                ),
               ),
             ),
-          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _pickFile(context),
+        onPressed: _pickFile,
         icon: const Icon(Icons.upload_file),
         label: const Text('Upload Files'),
       ),
     );
+  }
+
+  IconData _getFileIcon(String? format) {
+    switch (format?.toLowerCase()) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+        return Icons.image;
+      case 'mp3':
+      case 'wav':
+        return Icons.audio_file;
+      case 'mp4':
+      case 'avi':
+        return Icons.video_file;
+      default:
+        return Icons.insert_drive_file;
+    }
   }
 
   Widget _buildStorageInfo(BuildContext context) {

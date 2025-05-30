@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ApiConfig {
   static const String cloudinaryApiKey = '174196584956159';
   static const String cloudinaryApiSecret = 'xUJqaRlxBUIM_NsSlOmxo0rVo4E';
-  static const String cloudinaryCloudName = 'quokka-box';
+  static const String cloudinaryCloudName = 'c-762ef34dd8ad4ea764d4c3c6846e9f';
 
   static const String supabaseUrl = 'https://xzwbzhjdzxmwzepyuhn.supabase.co';
   static const String supabaseAnonKey =
